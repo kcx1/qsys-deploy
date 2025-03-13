@@ -99,4 +99,4 @@ This extension uses the QRC protocol to communicate with Q-SYS Core. For more in
 
 ## License
 
-This extension is licensed under the ISC License.
+This extension is licensed under the MIT License.
