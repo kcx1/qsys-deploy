@@ -1,0 +1,153 @@
+{
+  "name": "qsys-deploy-vscode",
+  "displayName": "Q-SYS Lua Script Deployment",
+  "description": "Deploy Lua scripts to Q-SYS Core or Designer",
+  "version": "0.1.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/username/qsys-deploy-vscode"
+  },
+  "author": "Your Name",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.60.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onLanguage:lua",
+    "onCommand:qsys-deploy.deployCurrentScript",
+    "onCommand:qsys-deploy.addCore",
+    "onCommand:qsys-deploy.removeCore",
+    "onCommand:qsys-deploy.mapScript",
+    "onCommand:qsys-deploy.testConnection",
+    "onCommand:qsys-deploy.toggleAutoDeployOnSave",
+    "onCommand:qsys-deploy.showDebugOutput"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "qsys-deploy.deployCurrentScript",
+        "title": "Q-SYS: Deploy Current Script"
+      },
+      {
+        "command": "qsys-deploy.addCore",
+        "title": "Q-SYS: Add Core Configuration"
+      },
+      {
+        "command": "qsys-deploy.removeCore",
+        "title": "Q-SYS: Remove Core Configuration"
+      },
+      {
+        "command": "qsys-deploy.mapScript",
+        "title": "Q-SYS: Map Script to Component"
+      },
+      {
+        "command": "qsys-deploy.testConnection",
+        "title": "Q-SYS: Test Core Connection"
+      },
+      {
+        "command": "qsys-deploy.toggleAutoDeployOnSave",
+        "title": "Q-SYS: Toggle Auto-Deploy on Save"
+      },
+      {
+        "command": "qsys-deploy.showDebugOutput",
+        "title": "Q-SYS: Show Debug Output"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "qsys-deploy.deployCurrentScript",
+        "key": "ctrl+alt+d",
+        "when": "editorLangId == lua"
+      }
+    ],
+    "configuration": {
+      "title": "Q-SYS Lua Script Deployment",
+      "properties": {
+        "qsys-deploy.autoDeployOnSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically deploy scripts on save"
+        },
+        "qsys-deploy.cores": {
+          "type": "array",
+          "default": [],
+          "description": "Q-SYS Core configurations",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Name of the core"
+              },
+              "ip": {
+                "type": "string",
+                "description": "IP address of the core"
+              },
+              "username": {
+                "type": "string",
+                "description": "Optional username for authentication"
+              },
+              "password": {
+                "type": "string",
+                "description": "Optional password for authentication"
+              },
+              "scripts": {
+                "type": "array",
+                "description": "Script mappings",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "filePath": {
+                      "type": "string",
+                      "description": "Path to the script file"
+                    },
+                    "componentName": {
+                      "type": "string",
+                      "description": "Name of the component"
+                    },
+                    "autoDeployOnSave": {
+                      "type": "boolean",
+                      "description": "Override global auto-deploy setting for this script"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "qsys-deploy.defaultCore": {
+          "type": "string",
+          "default": "",
+          "description": "Default core for new scripts"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "webpack",
+    "watch": "webpack --watch",
+    "package": "webpack --mode production --devtool hidden-source-map",
+    "compile-tests": "tsc -p . --outDir out",
+    "watch-tests": "tsc -p . -w --outDir out",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/node": "^16.11.7",
+    "@types/vscode": "^1.60.0",
+    "@typescript-eslint/eslint-plugin": "^5.30.0",
+    "@typescript-eslint/parser": "^5.30.0",
+    "eslint": "^8.18.0",
+    "typescript": "^4.7.4",
+    "webpack": "^5.73.0",
+    "webpack-cli": "^4.10.0",
+    "ts-loader": "^9.3.1"
+  },
+  "dependencies": {
+    "net": "^1.0.2"
+  }
+}
