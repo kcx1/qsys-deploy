@@ -2,7 +2,7 @@
   "name": "qsys-deploy-vscode",
   "displayName": "Q-SYS Lua Script Deployment",
   "description": "Deploy Lua scripts to Q-SYS Core or Designer",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/username/qsys-deploy-vscode"
@@ -18,11 +18,7 @@
   "activationEvents": [
     "onLanguage:lua",
     "onCommand:qsys-deploy.deployCurrentScript",
-    "onCommand:qsys-deploy.addCore",
-    "onCommand:qsys-deploy.removeCore",
-    "onCommand:qsys-deploy.mapScript",
     "onCommand:qsys-deploy.testConnection",
-    "onCommand:qsys-deploy.toggleAutoDeployOnSave",
     "onCommand:qsys-deploy.showDebugOutput"
   ],
   "main": "./dist/extension.js",
@@ -33,24 +29,8 @@
         "title": "Q-SYS: Deploy Current Script"
       },
       {
-        "command": "qsys-deploy.addCore",
-        "title": "Q-SYS: Add Core Configuration"
-      },
-      {
-        "command": "qsys-deploy.removeCore",
-        "title": "Q-SYS: Remove Core Configuration"
-      },
-      {
-        "command": "qsys-deploy.mapScript",
-        "title": "Q-SYS: Map Script to Component"
-      },
-      {
         "command": "qsys-deploy.testConnection",
         "title": "Q-SYS: Test Core Connection"
-      },
-      {
-        "command": "qsys-deploy.toggleAutoDeployOnSave",
-        "title": "Q-SYS: Toggle Auto-Deploy on Save"
       },
       {
         "command": "qsys-deploy.showDebugOutput",
@@ -94,27 +74,44 @@
               "password": {
                 "type": "string",
                 "description": "Optional password for authentication"
+              }
+            }
+          }
+        },
+        "qsys-deploy.scripts": {
+          "type": "array",
+          "default": [],
+          "description": "Script deployment configurations",
+          "items": {
+            "type": "object",
+            "properties": {
+              "filePath": {
+                "type": "string",
+                "description": "Path to the script file"
               },
-              "scripts": {
+              "targets": {
                 "type": "array",
-                "description": "Script mappings",
+                "description": "Deployment targets",
                 "items": {
                   "type": "object",
                   "properties": {
-                    "filePath": {
+                    "coreName": {
                       "type": "string",
-                      "description": "Path to the script file"
+                      "description": "Name of the core to deploy to"
                     },
-                    "componentName": {
-                      "type": "string",
-                      "description": "Name of the component"
-                    },
-                    "autoDeployOnSave": {
-                      "type": "boolean",
-                      "description": "Override global auto-deploy setting for this script"
+                    "components": {
+                      "type": "array",
+                      "description": "Component names to deploy to",
+                      "items": {
+                        "type": "string"
+                      }
                     }
                   }
                 }
+              },
+              "autoDeployOnSave": {
+                "type": "boolean",
+                "description": "Override global auto-deploy setting for this script"
               }
             }
           }

@@ -8,9 +8,17 @@ This extension allows you to edit Lua scripts designed to run on a Q-SYS Core an
 - Deploy scripts to Q-SYS Core or Designer with a keyboard shortcut (Ctrl+Alt+D)
 - Optionally auto-deploy scripts on save
 - Configure multiple cores with different IP addresses
-- Map scripts to specific components
+- Map scripts to multiple components across multiple cores
 - Support for authentication
 - Validate component types before deployment
+
+## Changelog
+
+### 0.2.0
+- Added support for deploying a single script to multiple Q-SYS Cores
+- Added support for deploying a script to multiple components within a core
+- Removed UI commands for configuration management (now done via settings.json)
+- Configuration format updated to support multiple deployment targets
 
 ## Requirements
 
@@ -28,24 +36,41 @@ This extension contributes the following settings:
 Example configuration:
 
 ```json
-"qsys-deploy": {
-  "autoDeployOnSave": false,
-  "cores": [
-    {
-      "name": "Main Auditorium",
-      "ip": "192.168.1.100",
-      "username": "admin",
-      "password": "pass",
-      "scripts": [
-        {
-          "filePath": "scripts/main-control.lua",
-          "componentName": "MainController",
-          "autoDeployOnSave": true
-        }
-      ]
-    }
-  ],
-  "defaultCore": "Main Auditorium"
+{
+  "qsys-deploy": {
+    "autoDeployOnSave": false,
+    "cores": [
+      {
+        "name": "Main Auditorium",
+        "ip": "192.168.1.100",
+        "username": "admin",
+        "password": "pass"
+      },
+      {
+        "name": "Backup Core",
+        "ip": "192.168.1.101",
+        "username": "admin",
+        "password": "pass"
+      }
+    ],
+    "scripts": [
+      {
+        "filePath": "scripts/main-control.lua",
+        "targets": [
+          {
+            "coreName": "Main Auditorium",
+            "components": ["MainController", "SecondaryController"]
+          },
+          {
+            "coreName": "Backup Core",
+            "components": ["MainController"]
+          }
+        ],
+        "autoDeployOnSave": true
+      }
+    ],
+    "defaultCore": "Main Auditorium"
+  }
 }
 ```
 
@@ -53,12 +78,8 @@ Example configuration:
 
 This extension provides the following commands:
 
-* `Q-SYS: Deploy Current Script`: Deploy the current script to its mapped component
-* `Q-SYS: Add Core Configuration`: Add a new Q-SYS Core configuration
-* `Q-SYS: Remove Core Configuration`: Remove a Q-SYS Core configuration
-* `Q-SYS: Map Script to Component`: Map the current script to a component
+* `Q-SYS: Deploy Current Script`: Deploy the current script to all mapped components across all cores
 * `Q-SYS: Test Core Connection`: Test connection to a Q-SYS Core
-* `Q-SYS: Toggle Auto-Deploy on Save`: Toggle the global auto-deploy setting
 * `Q-SYS: Show Debug Output`: Show the debug output panel with detailed logs
 
 ## Debugging
@@ -79,10 +100,9 @@ This information can help identify where the deployment process is failing.
 ## Usage
 
 1. Open a Lua script file in VS Code
-2. Use the command palette (Ctrl+Shift+P) to run `Q-SYS: Add Core Configuration` to add a Q-SYS Core
-3. Use the command palette to run `Q-SYS: Map Script to Component` to map the script to a component
-4. Edit your script and press Ctrl+Alt+D to deploy it to the Q-SYS Core
-5. Optionally enable auto-deploy on save using the `Q-SYS: Toggle Auto-Deploy on Save` command
+2. Configure your cores and script mappings in the settings.json file (see Example configuration above)
+3. Edit your script and press Ctrl+Alt+D to deploy it to all mapped components across all cores
+4. Optionally enable auto-deploy on save by setting `autoDeployOnSave` to true in your settings
 
 ## Component Type Validation
 

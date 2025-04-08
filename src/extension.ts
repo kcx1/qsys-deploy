@@ -7,12 +7,16 @@ interface QSysCore {
     ip: string;
     username?: string;
     password?: string;
-    scripts: ScriptMapping[];
+}
+
+interface DeploymentTarget {
+    coreName: string;
+    components: string[];
 }
 
 interface ScriptMapping {
     filePath: string;
-    componentName: string;
+    targets: DeploymentTarget[];
     autoDeployOnSave?: boolean;
 }
 
@@ -315,6 +319,7 @@ export function activate(context: vscode.ExtensionContext) {
         return {
             autoDeployOnSave: config.get<boolean>('autoDeployOnSave', false),
             cores: config.get<QSysCore[]>('cores', []),
+            scripts: config.get<ScriptMapping[]>('scripts', []),
             defaultCore: config.get<string>('defaultCore', '')
         };
     }
@@ -329,24 +334,40 @@ export function activate(context: vscode.ExtensionContext) {
             statusBarItem.backgroundColor = undefined;
         }
     }
-    
+
     // Find script mapping for a file
-    function findScriptMapping(filePath: string): { core: QSysCore, mapping: ScriptMapping } | undefined {
+    function findScriptMappings(filePath: string): { script: ScriptMapping, targets: Array<{ core: QSysCore, componentNames: string[] }> } | undefined {
         const settings = getSettings();
+        const normalizedFilePath = vscode.workspace.asRelativePath(filePath);
         
-        for (const core of settings.cores) {
-            for (const mapping of core.scripts) {
-                // Normalize paths for comparison
-                const normalizedFilePath = vscode.workspace.asRelativePath(filePath);
-                const normalizedMappingPath = vscode.workspace.asRelativePath(mapping.filePath);
-                
-                if (normalizedFilePath === normalizedMappingPath) {
-                    return { core, mapping };
-                }
+        // Find the script mapping
+        const scriptMapping = settings.scripts.find(script => {
+            const normalizedMappingPath = vscode.workspace.asRelativePath(script.filePath);
+            return normalizedFilePath === normalizedMappingPath;
+        });
+        
+        if (!scriptMapping) {
+            return undefined;
+        }
+        
+        // Find all cores and components for this script
+        const targets: Array<{ core: QSysCore, componentNames: string[] }> = [];
+        
+        for (const target of scriptMapping.targets) {
+            const core = settings.cores.find(c => c.name === target.coreName);
+            if (core) {
+                targets.push({
+                    core,
+                    componentNames: target.components
+                });
             }
         }
         
-        return undefined;
+        if (targets.length === 0) {
+            return undefined;
+        }
+        
+        return { script: scriptMapping, targets };
     }
     
     // Validate component type
@@ -483,20 +504,37 @@ export function activate(context: vscode.ExtensionContext) {
         }
         
         const filePath = editor.document.uri.fsPath;
-        const scriptMapping = findScriptMapping(filePath);
+        const scriptMappings = findScriptMappings(filePath);
         
-        if (scriptMapping) {
-            // Use existing mapping
-            await deployScript(filePath, scriptMapping.core, scriptMapping.mapping.componentName);
+        if (scriptMappings) {
+            // Use existing mappings to deploy to all targets
+            let successCount = 0;
+            let failCount = 0;
+            
+            for (const target of scriptMappings.targets) {
+                for (const componentName of target.componentNames) {
+                    const success = await deployScript(filePath, target.core, componentName);
+                    if (success) {
+                        successCount++;
+                    } else {
+                        failCount++;
+                    }
+                }
+            }
+            
+            if (successCount > 0 && failCount === 0) {
+                vscode.window.showInformationMessage(`Script deployed successfully to all ${successCount} targets.`);
+            } else if (successCount > 0 && failCount > 0) {
+                vscode.window.showWarningMessage(`Script deployed to ${successCount} targets, but failed on ${failCount} targets.`);
+            } else {
+                vscode.window.showErrorMessage(`Script deployment failed on all ${failCount} targets.`);
+            }
         } else {
             // No mapping found, ask user to create one
             const settings = getSettings();
             
             if (settings.cores.length === 0) {
-                const addCore = await vscode.window.showErrorMessage('No cores configured. Would you like to add one?', 'Add Core');
-                if (addCore === 'Add Core') {
-                    vscode.commands.executeCommand('qsys-deploy.addCore');
-                }
+                vscode.window.showErrorMessage('No cores configured. Please add cores in the settings.json file.');
                 return;
             }
             
@@ -536,20 +574,45 @@ export function activate(context: vscode.ExtensionContext) {
                 if (saveMapping === 'Save Mapping') {
                     // Add mapping to configuration
                     const config = vscode.workspace.getConfiguration('qsys-deploy');
-                    const cores = config.get<QSysCore[]>('cores', []);
+                    const scripts = config.get<ScriptMapping[]>('scripts', []);
+                    const normalizedFilePath = vscode.workspace.asRelativePath(filePath);
                     
-                    const coreIndex = cores.findIndex(c => c.name === selectedCore.core.name);
-                    if (coreIndex !== -1) {
-                        const normalizedFilePath = vscode.workspace.asRelativePath(filePath);
+                    // Check if script mapping already exists
+                    const existingScriptIndex = scripts.findIndex(s => 
+                        vscode.workspace.asRelativePath(s.filePath) === normalizedFilePath
+                    );
+                    
+                    if (existingScriptIndex !== -1) {
+                        // Add to existing script mapping
+                        const existingTarget = scripts[existingScriptIndex].targets.find(t => 
+                            t.coreName === selectedCore.core.name
+                        );
                         
-                        cores[coreIndex].scripts.push({
+                        if (existingTarget) {
+                            // Add component to existing target if not already there
+                            if (!existingTarget.components.includes(componentName)) {
+                                existingTarget.components.push(componentName);
+                            }
+                        } else {
+                            // Add new target
+                            scripts[existingScriptIndex].targets.push({
+                                coreName: selectedCore.core.name,
+                                components: [componentName]
+                            });
+                        }
+                    } else {
+                        // Create new script mapping
+                        scripts.push({
                             filePath: normalizedFilePath,
-                            componentName
+                            targets: [{
+                                coreName: selectedCore.core.name,
+                                components: [componentName]
+                            }]
                         });
-                        
-                        await config.update('cores', cores, vscode.ConfigurationTarget.Workspace);
-                        vscode.window.showInformationMessage('Script mapping saved');
                     }
+                    
+                    await config.update('scripts', scripts, vscode.ConfigurationTarget.Workspace);
+                    vscode.window.showInformationMessage('Script mapping saved');
                 }
             }
         }
@@ -609,8 +672,7 @@ export function activate(context: vscode.ExtensionContext) {
             name,
             ip,
             username,
-            password,
-            scripts: []
+            password
         });
         
         await config.update('cores', cores, vscode.ConfigurationTarget.Workspace);
@@ -681,10 +743,7 @@ export function activate(context: vscode.ExtensionContext) {
         const settings = getSettings();
         
         if (settings.cores.length === 0) {
-            const addCore = await vscode.window.showErrorMessage('No cores configured. Would you like to add one?', 'Add Core');
-            if (addCore === 'Add Core') {
-                vscode.commands.executeCommand('qsys-deploy.addCore');
-            }
+            vscode.window.showErrorMessage('No cores configured. Please add cores in the settings.json file.');
             return;
         }
         
@@ -713,29 +772,45 @@ export function activate(context: vscode.ExtensionContext) {
         
         // Add mapping to configuration
         const config = vscode.workspace.getConfiguration('qsys-deploy');
-        const cores = config.get<QSysCore[]>('cores', []);
+        const scripts = config.get<ScriptMapping[]>('scripts', []);
+        const normalizedFilePath = vscode.workspace.asRelativePath(filePath);
         
-        const coreIndex = cores.findIndex(c => c.name === selectedCore.core.name);
-        if (coreIndex !== -1) {
-            const normalizedFilePath = vscode.workspace.asRelativePath(filePath);
-            
-            // Check if mapping already exists
-            const existingMappingIndex = cores[coreIndex].scripts.findIndex(
-                s => s.filePath === normalizedFilePath
+        // Check if script mapping already exists
+        const existingScriptIndex = scripts.findIndex(s => 
+            vscode.workspace.asRelativePath(s.filePath) === normalizedFilePath
+        );
+        
+        if (existingScriptIndex !== -1) {
+            // Add to existing script mapping
+            const existingTarget = scripts[existingScriptIndex].targets.find(t => 
+                t.coreName === selectedCore.core.name
             );
             
-            if (existingMappingIndex !== -1) {
-                cores[coreIndex].scripts[existingMappingIndex].componentName = componentName;
+            if (existingTarget) {
+                // Add component to existing target if not already there
+                if (!existingTarget.components.includes(componentName)) {
+                    existingTarget.components.push(componentName);
+                }
             } else {
-                cores[coreIndex].scripts.push({
-                    filePath: normalizedFilePath,
-                    componentName
+                // Add new target
+                scripts[existingScriptIndex].targets.push({
+                    coreName: selectedCore.core.name,
+                    components: [componentName]
                 });
             }
-            
-            await config.update('cores', cores, vscode.ConfigurationTarget.Workspace);
-            vscode.window.showInformationMessage('Script mapping saved');
+        } else {
+            // Create new script mapping
+            scripts.push({
+                filePath: normalizedFilePath,
+                targets: [{
+                    coreName: selectedCore.core.name,
+                    components: [componentName]
+                }]
+            });
         }
+        
+        await config.update('scripts', scripts, vscode.ConfigurationTarget.Workspace);
+        vscode.window.showInformationMessage('Script mapping saved');
     });
     
     // Command: Test connection
@@ -825,16 +900,21 @@ export function activate(context: vscode.ExtensionContext) {
         
         const settings = getSettings();
         const filePath = document.uri.fsPath;
-        const scriptMapping = findScriptMapping(filePath);
+        const scriptMappings = findScriptMappings(filePath);
         
-        if (scriptMapping) {
+        if (scriptMappings) {
             // Check if auto-deploy is enabled
-            const autoDeployForScript = scriptMapping.mapping.autoDeployOnSave !== undefined
-                ? scriptMapping.mapping.autoDeployOnSave
+            const autoDeployForScript = scriptMappings.script.autoDeployOnSave !== undefined
+                ? scriptMappings.script.autoDeployOnSave
                 : settings.autoDeployOnSave;
             
             if (autoDeployForScript) {
-                await deployScript(filePath, scriptMapping.core, scriptMapping.mapping.componentName);
+                // Deploy to all targets
+                for (const target of scriptMappings.targets) {
+                    for (const componentName of target.componentNames) {
+                        await deployScript(filePath, target.core, componentName);
+                    }
+                }
             }
         }
     });
