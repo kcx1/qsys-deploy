@@ -170,7 +170,7 @@ class QrcClient {
     }
 
     // Send a command to the Q-SYS Core
-    public sendCommand(method: string, params: any[] = []): Promise<any> {
+    public sendCommand(method: string, params: any[] | object = []): Promise<any> {
         return new Promise((resolve, reject) => {
             if (!this.socket) {
                 const error = 'Not connected to Q-SYS Core';
@@ -207,7 +207,10 @@ class QrcClient {
     // Login to the Q-SYS Core
     public async login(username: string, password: string): Promise<void> {
         try {
-            await this.sendCommand('login', [username, password]);
+            await this.sendCommand('Logon', {
+                User: username,
+                Password: password
+            });
         } catch (err) {
             throw new Error(`Authentication failed: ${err}`);
         }
@@ -313,14 +316,13 @@ export function activate(context: vscode.ExtensionContext) {
     });
     context.subscriptions.push(showDebugOutputCommand);
     
-    // Get extension settings
+// Get extension settings
     function getSettings() {
         const config = vscode.workspace.getConfiguration('qsys-deploy');
         return {
             autoDeployOnSave: config.get<boolean>('autoDeployOnSave', false),
             cores: config.get<QSysCore[]>('cores', []),
-            scripts: config.get<ScriptMapping[]>('scripts', []),
-            defaultCore: config.get<string>('defaultCore', '')
+            scripts: config.get<ScriptMapping[]>('scripts', [])
         };
     }
     
@@ -373,53 +375,23 @@ export function activate(context: vscode.ExtensionContext) {
     // Validate component type
     async function validateComponent(client: QrcClient, componentName: string): Promise<boolean> {
         try {
-            outputChannel.appendLine(`Validating component with name: "${componentName}"`);
+            outputChannel.appendLine(`Validating component: "${componentName}"`);
             
             const components = await client.getComponents();
-            outputChannel.appendLine(`Got ${components.length} components`);
+            outputChannel.appendLine(`Retrieved ${components.length} components from the core`);
             
-            // Log all components for debugging
-            outputChannel.appendLine("=== All Components ===");
-            components.forEach((comp, index) => {
-                outputChannel.appendLine(`Component ${index + 1}:`);
-                outputChannel.appendLine(`  Name: "${comp.Name || 'undefined'}"`);
-                outputChannel.appendLine(`  ID: "${comp.ID || 'undefined'}"`);
-                outputChannel.appendLine(`  Type: "${comp.Type || 'undefined'}"`);
-            });
-            outputChannel.appendLine("=====================");
+            // Find the component by Name or ID, but don't log each check
+            const matchedComponent = components.find(comp => 
+                comp.Name === componentName || comp.ID === componentName
+            );
             
-            // Try to find by Name or ID
-            outputChannel.appendLine(`Looking for component with Name or ID matching "${componentName}"`);
-            
-            // Debug each component match attempt
-            let matchFound = false;
-            let matchedComponent = null;
-            
-            for (const comp of components) {
-                outputChannel.appendLine(`Checking component - Name: "${comp.Name}", ID: "${comp.ID}"`);
-                
-                if (comp.Name === componentName) {
-                    outputChannel.appendLine(`✓ Match found by Name: "${comp.Name}"`);
-                    matchFound = true;
-                    matchedComponent = comp;
-                    break;
-                } else if (comp.ID === componentName) {
-                    outputChannel.appendLine(`✓ Match found by ID: "${comp.ID}"`);
-                    matchFound = true;
-                    matchedComponent = comp;
-                    break;
-                } else {
-                    outputChannel.appendLine(`✗ No match`);
-                }
-            }
-            
-            if (!matchFound || !matchedComponent) {
+            if (!matchedComponent) {
                 outputChannel.appendLine(`Component "${componentName}" not found in the list of components`);
                 vscode.window.showErrorMessage(`Component "${componentName}" not found`);
                 return false;
             }
             
-            outputChannel.appendLine(`Found component: ${JSON.stringify(matchedComponent)}`);
+            outputChannel.appendLine(`Found component "${componentName}" with type "${matchedComponent.Type}"`);
             
             const validTypes = ['device_controller_script', 'control_script_2', 'scriptable_controls'];
             if (!validTypes.includes(matchedComponent.Type)) {
@@ -428,7 +400,6 @@ export function activate(context: vscode.ExtensionContext) {
                 return false;
             }
             
-            outputChannel.appendLine(`Component "${componentName}" is valid with type "${matchedComponent.Type}"`);
             return true;
         } catch (err) {
             outputChannel.appendLine(`Error validating component: ${err}`);
@@ -495,6 +466,39 @@ export function activate(context: vscode.ExtensionContext) {
         }
     }
     
+    // Helper types for selection QuickPicks
+    interface CoreQuickPickItem extends vscode.QuickPickItem {
+        core: QSysCore;
+        isSelectAll?: boolean;
+    }
+    
+    interface ComponentQuickPickItem extends vscode.QuickPickItem {
+        componentName: string;
+        isSelectAll?: boolean;
+    }
+    
+    // Helper function to show multi-select QuickPick for cores
+    async function showCoreSelectionQuickPick(coreItems: CoreQuickPickItem[], canPickMany: boolean = false) {
+        return vscode.window.showQuickPick<CoreQuickPickItem>([
+            { label: '$(check-all) Select All', picked: false, isSelectAll: true, core: null as any },
+            ...coreItems
+        ], {
+            placeHolder: 'Select Q-SYS Cores to deploy to',
+            canPickMany
+        });
+    }
+
+    // Helper function to show multi-select QuickPick for components
+    async function showComponentSelectionQuickPick(componentItems: ComponentQuickPickItem[]) {
+        return vscode.window.showQuickPick<ComponentQuickPickItem>([
+            { label: '$(check-all) Select All', picked: false, isSelectAll: true, componentName: '' },
+            ...componentItems
+        ], {
+            placeHolder: 'Select components to deploy to',
+            canPickMany: true
+        });
+    }
+    
     // Command: Deploy current script
     const deployCurrentScriptCommand = vscode.commands.registerCommand('qsys-deploy.deployCurrentScript', async () => {
         const editor = vscode.window.activeTextEditor;
@@ -505,53 +509,103 @@ export function activate(context: vscode.ExtensionContext) {
         
         const filePath = editor.document.uri.fsPath;
         const scriptMappings = findScriptMappings(filePath);
+        const settings = getSettings();
+        
+        if (settings.cores.length === 0) {
+            vscode.window.showErrorMessage('No cores configured. Please add cores in the settings.json file.');
+            return;
+        }
+        
+        // Arrays to hold selected cores and components for deployment
+        let selectedCores: QSysCore[] = [];
+        let deployTargets: Array<{core: QSysCore, componentNames: string[]}> = [];
         
         if (scriptMappings) {
-            // Use existing mappings to deploy to all targets
-            let successCount = 0;
-            let failCount = 0;
+            // Script mapping exists - present configured cores with multi-select
+            const coreItems = scriptMappings.targets.map(target => ({
+                label: target.core.name,
+                description: target.core.ip,
+                core: target.core
+            }));
             
-            for (const target of scriptMappings.targets) {
-                for (const componentName of target.componentNames) {
-                    const success = await deployScript(filePath, target.core, componentName);
-                    if (success) {
-                        successCount++;
-                    } else {
-                        failCount++;
-                    }
-                }
+            const selectedCoreItems = await showCoreSelectionQuickPick(coreItems, true) as CoreQuickPickItem[] | undefined;
+            
+            if (!selectedCoreItems || selectedCoreItems.length === 0) {
+                return; // User cancelled
             }
             
-            if (successCount > 0 && failCount === 0) {
-                vscode.window.showInformationMessage(`Script deployed successfully to all ${successCount} targets.`);
-            } else if (successCount > 0 && failCount > 0) {
-                vscode.window.showWarningMessage(`Script deployed to ${successCount} targets, but failed on ${failCount} targets.`);
+            if (selectedCoreItems.some((item: CoreQuickPickItem) => item.isSelectAll)) {
+                // "Select All" was chosen
+                selectedCores = scriptMappings.targets.map(target => target.core);
             } else {
-                vscode.window.showErrorMessage(`Script deployment failed on all ${failCount} targets.`);
+                selectedCores = selectedCoreItems.map((item: CoreQuickPickItem) => item.core);
             }
+            
+            // Filter targets to only include selected cores
+            const filteredTargets = scriptMappings.targets.filter(target => 
+                selectedCores.some(core => core.name === target.core.name)
+            );
+            
+            // Collect all component names across selected cores
+            const allComponentItems: Array<{label: string, componentName: string, coreName: string}> = [];
+            filteredTargets.forEach(target => {
+                target.componentNames.forEach(componentName => {
+                    allComponentItems.push({
+                        label: `${componentName} (${target.core.name})`,
+                        componentName,
+                        coreName: target.core.name
+                    });
+                });
+            });
+            
+            // Show component selection
+            const selectedComponentItems = await showComponentSelectionQuickPick(
+                allComponentItems.map(item => ({
+                    label: item.label,
+                    componentName: item.componentName
+                }))
+            ) as ComponentQuickPickItem[] | undefined;
+            
+            if (!selectedComponentItems || selectedComponentItems.length === 0) {
+                return; // User cancelled
+            }
+            
+            let selectedComponentNames: string[] = [];
+            
+            if (selectedComponentItems.some((item: ComponentQuickPickItem) => item.isSelectAll)) {
+                // "Select All" was chosen
+                selectedComponentNames = allComponentItems.map(item => item.componentName);
+            } else {
+                selectedComponentNames = selectedComponentItems.map((item: ComponentQuickPickItem) => item.componentName);
+            }
+            
+            // Build deploy targets
+            deployTargets = filteredTargets.map(target => {
+                return {
+                    core: target.core,
+                    componentNames: target.componentNames.filter(componentName => 
+                        selectedComponentNames.includes(componentName)
+                    )
+                };
+            }).filter(target => target.componentNames.length > 0);
+            
         } else {
-            // No mapping found, ask user to create one
-            const settings = getSettings();
-            
-            if (settings.cores.length === 0) {
-                vscode.window.showErrorMessage('No cores configured. Please add cores in the settings.json file.');
-                return;
-            }
-            
+            // No mapping found - show all available cores
             const coreItems = settings.cores.map(core => ({
                 label: core.name,
                 description: core.ip,
                 core
             }));
             
-            const selectedCore = await vscode.window.showQuickPick(coreItems, {
-                placeHolder: 'Select a Q-SYS Core'
-            });
+            const selectedCoreItem = await showCoreSelectionQuickPick(coreItems, false);
             
-            if (!selectedCore) {
+            if (!selectedCoreItem) {
                 return;
             }
             
+            const selectedCore = selectedCoreItem.core;
+            
+            // Ask for component name
             const componentName = await vscode.window.showInputBox({
                 prompt: 'Enter component name',
                 placeHolder: 'e.g., MainController'
@@ -561,267 +615,72 @@ export function activate(context: vscode.ExtensionContext) {
                 return;
             }
             
-            // Deploy script
-            const success = await deployScript(filePath, selectedCore.core, componentName);
-            
-            if (success) {
-                // Ask if user wants to save this mapping
-                const saveMapping = await vscode.window.showInformationMessage(
-                    'Script deployed successfully. Would you like to save this mapping?',
-                    'Save Mapping'
-                );
-                
-                if (saveMapping === 'Save Mapping') {
-                    // Add mapping to configuration
-                    const config = vscode.workspace.getConfiguration('qsys-deploy');
-                    const scripts = config.get<ScriptMapping[]>('scripts', []);
-                    const normalizedFilePath = vscode.workspace.asRelativePath(filePath);
-                    
-                    // Check if script mapping already exists
-                    const existingScriptIndex = scripts.findIndex(s => 
-                        vscode.workspace.asRelativePath(s.filePath) === normalizedFilePath
-                    );
-                    
-                    if (existingScriptIndex !== -1) {
-                        // Add to existing script mapping
-                        const existingTarget = scripts[existingScriptIndex].targets.find(t => 
-                            t.coreName === selectedCore.core.name
-                        );
-                        
-                        if (existingTarget) {
-                            // Add component to existing target if not already there
-                            if (!existingTarget.components.includes(componentName)) {
-                                existingTarget.components.push(componentName);
-                            }
-                        } else {
-                            // Add new target
-                            scripts[existingScriptIndex].targets.push({
-                                coreName: selectedCore.core.name,
-                                components: [componentName]
-                            });
-                        }
-                    } else {
-                        // Create new script mapping
-                        scripts.push({
-                            filePath: normalizedFilePath,
-                            targets: [{
-                                coreName: selectedCore.core.name,
-                                components: [componentName]
-                            }]
-                        });
-                    }
-                    
-                    await config.update('scripts', scripts, vscode.ConfigurationTarget.Workspace);
-                    vscode.window.showInformationMessage('Script mapping saved');
+            deployTargets = [{
+                core: selectedCore,
+                componentNames: [componentName]
+            }];
+        }
+        
+        // Deploy to all selected targets
+        let successCount = 0;
+        let failCount = 0;
+        
+        for (const target of deployTargets) {
+            for (const componentName of target.componentNames) {
+                const success = await deployScript(filePath, target.core, componentName);
+                if (success) {
+                    successCount++;
+                } else {
+                    failCount++;
                 }
             }
         }
-    });
-    
-    // Command: Add core configuration
-    const addCoreCommand = vscode.commands.registerCommand('qsys-deploy.addCore', async () => {
-        const name = await vscode.window.showInputBox({
-            prompt: 'Enter a name for the core',
-            placeHolder: 'e.g., Main Auditorium'
-        });
         
-        if (!name) {
-            return;
+        if (successCount > 0 && failCount === 0) {
+            vscode.window.showInformationMessage(`Script deployed successfully to all ${successCount} targets.`);
+        } else if (successCount > 0 && failCount > 0) {
+            vscode.window.showWarningMessage(`Script deployed to ${successCount} targets, but failed on ${failCount} targets.`);
+        } else if (successCount === 0 && failCount > 0) {
+            vscode.window.showErrorMessage(`Script deployment failed on all ${failCount} targets.`);
+        } else {
+            vscode.window.showInformationMessage('No deployments were attempted.');
         }
         
-        const ip = await vscode.window.showInputBox({
-            prompt: 'Enter the IP address of the core',
-            placeHolder: 'e.g., 192.168.1.100'
-        });
-        
-        if (!ip) {
-            return;
-        }
-        
-        const useAuth = await vscode.window.showQuickPick(['Yes', 'No'], {
-            placeHolder: 'Use authentication?'
-        });
-        
-        let username, password;
-        
-        if (useAuth === 'Yes') {
-            username = await vscode.window.showInputBox({
-                prompt: 'Enter username',
-                placeHolder: 'e.g., admin'
-            });
-            
-            if (!username) {
-                return;
-            }
-            
-            password = await vscode.window.showInputBox({
-                prompt: 'Enter password',
-                password: true
-            });
-            
-            if (!password) {
-                return;
-            }
-        }
-        
-        // Add core to configuration
-        const config = vscode.workspace.getConfiguration('qsys-deploy');
-        const cores = config.get<QSysCore[]>('cores', []);
-        
-        cores.push({
-            name,
-            ip,
-            username,
-            password
-        });
-        
-        await config.update('cores', cores, vscode.ConfigurationTarget.Workspace);
-        
-        // Set as default if it's the first core
-        if (cores.length === 1) {
-            await config.update('defaultCore', name, vscode.ConfigurationTarget.Workspace);
-        }
-        
-        vscode.window.showInformationMessage(`Core "${name}" added`);
-        
-        // Test connection
-        const testConnection = await vscode.window.showInformationMessage(
-            'Would you like to test the connection?',
-            'Test Connection'
-        );
-        
-        if (testConnection === 'Test Connection') {
-            vscode.commands.executeCommand('qsys-deploy.testConnection');
-        }
-    });
-    
-    // Command: Remove core configuration
-    const removeCoreCommand = vscode.commands.registerCommand('qsys-deploy.removeCore', async () => {
-        const settings = getSettings();
-        
-        if (settings.cores.length === 0) {
-            vscode.window.showErrorMessage('No cores configured');
-            return;
-        }
-        
-        const coreItems = settings.cores.map(core => ({
-            label: core.name,
-            description: core.ip
-        }));
-        
-        const selectedCore = await vscode.window.showQuickPick(coreItems, {
-            placeHolder: 'Select a core to remove'
-        });
-        
-        if (!selectedCore) {
-            return;
-        }
-        
-        // Remove core from configuration
-        const config = vscode.workspace.getConfiguration('qsys-deploy');
-        const cores = settings.cores.filter(core => core.name !== selectedCore.label);
-        
-        await config.update('cores', cores, vscode.ConfigurationTarget.Workspace);
-        
-        // Update default core if needed
-        if (settings.defaultCore === selectedCore.label) {
-            await config.update('defaultCore', cores.length > 0 ? cores[0].name : '', vscode.ConfigurationTarget.Workspace);
-        }
-        
-        vscode.window.showInformationMessage(`Core "${selectedCore.label}" removed`);
-    });
-    
-    // Command: Map script to component
-    const mapScriptCommand = vscode.commands.registerCommand('qsys-deploy.mapScript', async () => {
-        const editor = vscode.window.activeTextEditor;
-        if (!editor) {
-            vscode.window.showErrorMessage('No active editor');
-            return;
-        }
-        
-        const filePath = editor.document.uri.fsPath;
-        const settings = getSettings();
-        
-        if (settings.cores.length === 0) {
-            vscode.window.showErrorMessage('No cores configured. Please add cores in the settings.json file.');
-            return;
-        }
-        
-        const coreItems = settings.cores.map(core => ({
-            label: core.name,
-            description: core.ip,
-            core
-        }));
-        
-        const selectedCore = await vscode.window.showQuickPick(coreItems, {
-            placeHolder: 'Select a Q-SYS Core'
-        });
-        
-        if (!selectedCore) {
-            return;
-        }
-        
-        const componentName = await vscode.window.showInputBox({
-            prompt: 'Enter component name',
-            placeHolder: 'e.g., MainController'
-        });
-        
-        if (!componentName) {
-            return;
-        }
-        
-        // Add mapping to configuration
-        const config = vscode.workspace.getConfiguration('qsys-deploy');
-        const scripts = config.get<ScriptMapping[]>('scripts', []);
-        const normalizedFilePath = vscode.workspace.asRelativePath(filePath);
-        
-        // Check if script mapping already exists
-        const existingScriptIndex = scripts.findIndex(s => 
-            vscode.workspace.asRelativePath(s.filePath) === normalizedFilePath
-        );
-        
-        if (existingScriptIndex !== -1) {
-            // Add to existing script mapping
-            const existingTarget = scripts[existingScriptIndex].targets.find(t => 
-                t.coreName === selectedCore.core.name
+        // Ask if user wants to save this mapping (only for new mappings)
+        if (!scriptMappings && successCount > 0) {
+            const saveMapping = await vscode.window.showInformationMessage(
+                'Script deployed successfully. Would you like to save this mapping?',
+                'Save Mapping'
             );
             
-            if (existingTarget) {
-                // Add component to existing target if not already there
-                if (!existingTarget.components.includes(componentName)) {
-                    existingTarget.components.push(componentName);
-                }
-            } else {
-                // Add new target
-                scripts[existingScriptIndex].targets.push({
-                    coreName: selectedCore.core.name,
-                    components: [componentName]
+            if (saveMapping === 'Save Mapping') {
+                // Add mapping to configuration
+                const config = vscode.workspace.getConfiguration('qsys-deploy');
+                const scripts = config.get<ScriptMapping[]>('scripts', []);
+                const normalizedFilePath = vscode.workspace.asRelativePath(filePath);
+                
+                // Create new script mapping
+                scripts.push({
+                    filePath: normalizedFilePath,
+                    targets: deployTargets.map(target => ({
+                        coreName: target.core.name,
+                        components: target.componentNames
+                    }))
                 });
+                
+                await config.update('scripts', scripts, vscode.ConfigurationTarget.Workspace);
+                vscode.window.showInformationMessage('Script mapping saved');
             }
-        } else {
-            // Create new script mapping
-            scripts.push({
-                filePath: normalizedFilePath,
-                targets: [{
-                    coreName: selectedCore.core.name,
-                    components: [componentName]
-                }]
-            });
         }
-        
-        await config.update('scripts', scripts, vscode.ConfigurationTarget.Workspace);
-        vscode.window.showInformationMessage('Script mapping saved');
     });
+    
     
     // Command: Test connection
     const testConnectionCommand = vscode.commands.registerCommand('qsys-deploy.testConnection', async () => {
         const settings = getSettings();
         
         if (settings.cores.length === 0) {
-            const addCore = await vscode.window.showErrorMessage('No cores configured. Would you like to add one?', 'Add Core');
-            if (addCore === 'Add Core') {
-                vscode.commands.executeCommand('qsys-deploy.addCore');
-            }
+            vscode.window.showErrorMessage('No cores configured. Please add cores in the settings.json file.');
             return;
         }
         
@@ -881,15 +740,6 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
     
-    // Command: Toggle auto-deploy on save
-    const toggleAutoDeployCommand = vscode.commands.registerCommand('qsys-deploy.toggleAutoDeployOnSave', async () => {
-        const config = vscode.workspace.getConfiguration('qsys-deploy');
-        const currentSetting = config.get<boolean>('autoDeployOnSave', false);
-        
-        await config.update('autoDeployOnSave', !currentSetting, vscode.ConfigurationTarget.Workspace);
-        
-        vscode.window.showInformationMessage(`Auto-deploy on save: ${!currentSetting ? 'Enabled' : 'Disabled'}`);
-    });
     
     // File save event handler for auto-deploy
     const onSaveHandler = vscode.workspace.onDidSaveTextDocument(async (document) => {
@@ -922,11 +772,8 @@ export function activate(context: vscode.ExtensionContext) {
     // Register all commands and event handlers
     context.subscriptions.push(
         deployCurrentScriptCommand,
-        addCoreCommand,
-        removeCoreCommand,
-        mapScriptCommand,
         testConnectionCommand,
-        toggleAutoDeployCommand,
+        showDebugOutputCommand,
         onSaveHandler
     );
 }
