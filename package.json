@@ -2,7 +2,7 @@
   "name": "qsys-deploy-vscode",
   "displayName": "Q-SYS Lua Script Deployment",
   "description": "Deploy Lua scripts to Q-SYS Core or Designer",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/username/qsys-deploy-vscode"
@@ -10,16 +10,10 @@
   "author": "Your Name",
   "license": "MIT",
   "engines": {
-    "vscode": "^1.60.0"
+    "vscode": "^1.75.0"
   },
   "categories": [
     "Other"
-  ],
-  "activationEvents": [
-    "onLanguage:lua",
-    "onCommand:qsys-deploy.deployCurrentScript",
-    "onCommand:qsys-deploy.testConnection",
-    "onCommand:qsys-deploy.showDebugOutput"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -115,11 +109,6 @@
               }
             }
           }
-        },
-        "qsys-deploy.defaultCore": {
-          "type": "string",
-          "default": "",
-          "description": "Default core for new scripts"
         }
       }
     }
@@ -145,6 +134,5 @@
     "ts-loader": "^9.3.1"
   },
   "dependencies": {
-    "net": "^1.0.2"
   }
 }
