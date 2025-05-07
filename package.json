@@ -3,11 +3,12 @@
   "displayName": "Q-SYS Lua Script Deployment",
   "description": "Deploy Lua scripts to Q-SYS Core or Designer",
   "version": "0.3.0",
+  "publisher": "WhiteLabelAV",
   "repository": {
     "type": "git",
-    "url": "https://github.com/username/qsys-deploy-vscode"
+    "url": "https://github.com/White-Label-AV/qsys-deploy-vscode"
   },
-  "author": "Your Name",
+  "author": "White Label AV",
   "license": "MIT",
   "engines": {
     "vscode": "^1.75.0"
