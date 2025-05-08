@@ -1,11 +1,10 @@
 # Q-SYS Lua Script Deployment Extension for VS Code
 
-This extension allows you to edit Lua scripts designed to run on a Q-SYS Core and automatically deploy them to either a running Q-SYS Core or a running instance of Q-SYS Designer in emulation mode.
+This extension allows you to edit Lua scripts in VS Code that are designed to run on a Q-SYS Core and automatically deploy them to either a running Q-SYS Core or a running instance of Q-SYS Designer in emulation mode. Big thanks to [Patrick Gilligan](https://www.youtube.com/@patrickgil_dev) for the inspiration for this extension.
 
 ## Features
 
-- Edit Lua scripts for Q-SYS Core
-- Deploy scripts to Q-SYS Core or Designer with a keyboard shortcut (Ctrl+Alt+D)
+- Deploy scripts to Q-SYS Core(s) or Q-SYS Designer with a keyboard shortcut (Ctrl+Alt+D)
 - Configure multiple cores with different IP addresses
 - Map scripts to multiple components across multiple cores
 - Support for authentication
@@ -13,7 +12,7 @@ This extension allows you to edit Lua scripts designed to run on a Q-SYS Core an
 
 ## Changelog
 
-### 0.3.0
+### 0.3
 
 - Enhanced "Deploy Current Script" command with interactive core and component selection:
   - When deploying to existing mapped scripts, you can now choose specific cores and components
@@ -21,7 +20,7 @@ This extension allows you to edit Lua scripts designed to run on a Q-SYS Core an
 - Reduced debug output verbosity for better readability
 - Removed unused defaultCore setting
 
-### 0.2.0
+### 0.2
 
 - Added support for deploying a single script to multiple Q-SYS Cores
 - Added support for deploying a script to multiple components within a core
@@ -32,6 +31,7 @@ This extension allows you to edit Lua scripts designed to run on a Q-SYS Core an
 
 - Visual Studio Code 1.60.0 or higher
 - A running Q-SYS Core or Q-SYS Designer in emulation mode
+- Text Controller components that have script access set to "External" or "All"
 
 ## Extension Settings
 
@@ -53,10 +53,8 @@ Example configuration:
         "password": "pass"
       },
       {
-        "name": "Backup Core",
-        "ip": "192.168.1.101",
-        "username": "admin",
-        "password": "pass"
+        "name": "Q-SYS Designer Emulation",
+        "ip": "127.0.0.1"
       }
     ],
     "scripts": [
@@ -68,7 +66,7 @@ Example configuration:
             "components": ["MainController", "SecondaryController"]
           },
           {
-            "coreName": "Backup Core",
+            "coreName": "Q-SYS Designer Emulation",
             "components": ["MainController"]
           }
         ]
@@ -99,8 +97,6 @@ If you encounter issues with deployment, you can use the debug output panel to t
    - Commands sent to the core
    - Responses received from the core
 
-This information can help identify where the deployment process is failing.
-
 ## Usage
 
 1. Open a Lua script file in VS Code
@@ -109,13 +105,11 @@ This information can help identify where the deployment process is failing.
    - For mapped scripts: You'll be prompted to select which cores and components to deploy to
    - For unmapped scripts: You'll be prompted to select a core and enter a component name
 
-## Component Type Validation
+## Todo
 
-The extension validates that the target component is one of the following types:
-
-- device_controller_script
-- control_script_2
-- scriptable_controls
+1. Create settings file helper - if deploying and no script/cores are defined, allow user to type and offer to add to settings.json file.
+2. Improve TCP connection handling. Currently creates a TCP connection per script deployment even if deploying to multiple scripts in the same core.
+3. Improve status bar connection info.
 
 ## QRC Protocol
 
