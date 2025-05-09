@@ -1,3 +1,11 @@
+# Q-SYS Lua Script Deployment froom Command Line
+
+Dev version to test the this as a cli
+
+-------
+*Original*
+-------
+
 # Q-SYS Lua Script Deployment Extension for VS Code
 
 This extension allows you to edit Lua scripts in VS Code that are designed to run on a Q-SYS Core and automatically deploy them to either a running Q-SYS Core or a running instance of Q-SYS Designer in emulation mode. Big thanks to [Patrick Gilligan](https://www.youtube.com/@patrickgil_dev) for the inspiration for this extension.
